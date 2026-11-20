@@ -1,6 +1,9 @@
-// Local report download. A phone on the same Wi-Fi scans the QR code on the report
-// screen and gets the PDF straight from the controller; no internet required.
-// The PDF is produced while it is being sent, through one fixed 1 KB buffer.
+// Local report download and real-time dashboard.
+// The dashboard (React/Vite) is served from LittleFS as pre-gzipped flat files.
+// All API endpoints return JSON with CORS headers so the GitHub Pages build can
+// also reach the device — but mixed-content rules prevent that from a browser;
+// the preferred path is opening http://<device-ip>/app/ directly.
+#include <LittleFS.h>
 #include <esp_heap_caps.h>
 #include <esp_http_server.h>
 #include <esp_timer.h>
@@ -358,15 +361,79 @@ static esp_err_t apiEvents(httpd_req_t* r) {
   return ESP_OK;
 }
 
+// ---- GET /app/* — serve pre-gzipped dashboard from LittleFS -------------------
+// Files live at /www/<flat-name>.gz, e.g. /www/assets_index-xxx.js.gz
+// index.html is served for any path under /app/ (SPA fallback).
+static esp_err_t serveApp(httpd_req_t* r) {
+  // Strip /app prefix; empty → "/"
+  const char* sub = r->uri + 4;   // skip "/app"
+  if (!sub[0] || (sub[0] == '/' && !sub[1])) sub = "/index.html";
+
+  // Flat-map: /assets/foo.js → assets_foo.js
+  char flat[64] = {};
+  const char* p = sub[0] == '/' ? sub + 1 : sub;
+  size_t fi = 0;
+  while (*p && fi < sizeof(flat) - 1) {
+    flat[fi++] = (*p == '/') ? '_' : *p;
+    p++;
+  }
+  flat[fi] = '\0';
+
+  char path[80];
+  snprintf(path, sizeof(path), "/www/%s.gz", flat);
+
+  // Try LittleFS
+  FILE* f = fopen(path, "rb");
+  if (!f) {
+    // SPA fallback: any unknown path → index.html
+    f = fopen("/www/index.html.gz", "rb");
+    snprintf(path, sizeof(path), "/www/index.html.gz");
+  }
+  if (!f) { httpd_resp_send_404(r); return ESP_OK; }
+
+  // Content-Type by extension
+  const char* ct = "application/octet-stream";
+  if (strstr(flat, ".html"))    ct = "text/html";
+  else if (strstr(flat, ".js")) ct = "application/javascript";
+  else if (strstr(flat, ".css"))ct = "text/css";
+  else if (strstr(flat, ".svg"))ct = "image/svg+xml";
+  else if (strstr(flat, ".webmanifest")) ct = "application/manifest+json";
+  else if (strstr(flat, ".ico"))ct = "image/x-icon";
+
+  httpd_resp_set_type(r, ct);
+  httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
+  httpd_resp_set_hdr(r, "Cache-Control", "public, max-age=3600");
+
+  static char fbuf[1024];
+  size_t n;
+  while ((n = fread(fbuf, 1, sizeof(fbuf), f)) > 0)
+    httpd_resp_send_chunk(r, fbuf, n);
+  fclose(f);
+  httpd_resp_send_chunk(r, nullptr, 0);
+  return ESP_OK;
+}
+
 void startWeb() {
   static httpd_handle_t server = nullptr;
   if (server) return;
+
+  // Mount the small 'spiffs' partition that holds the pre-gzipped dashboard files.
+  // This is separate from the 'logs' partition used by task_store.
+  static bool www_mounted = false;
+  if (!www_mounted) {
+    static fs::LittleFSFS www_fs;
+    if (www_fs.begin(true, "/www", 4, "spiffs")) {
+      www_mounted = true;
+    } else {
+      ESP_LOGW("web", "Could not mount /www (spiffs) — dashboard unavailable");
+    }
+  }
   httpd_config_t c = HTTPD_DEFAULT_CONFIG();
   c.core_id = 0;
   c.task_priority = 4;
   c.stack_size = 8192;   // bumped: JSON serialisation needs more stack
   c.max_open_sockets = 4;
-  c.max_uri_handlers = 12;
+  c.max_uri_handlers = 14;
   c.uri_match_fn = httpd_uri_match_wildcard;
   c.lru_purge_enable = true;
   if (httpd_start(&server, &c) != ESP_OK) return;
@@ -383,8 +450,20 @@ void startWeb() {
   // CORS pre-flight for all API routes
   httpd_uri_t h_options  {"/api/*",          HTTP_OPTIONS, handleOptions, nullptr};
 
+  // Dashboard SPA
+  httpd_uri_t h_app      {"/app/*",           HTTP_GET,    serveApp,      nullptr};
+  // Redirect bare /app to /app/
+  httpd_uri_t h_app_root {"/app",             HTTP_GET,    [](httpd_req_t* r) -> esp_err_t {
+    httpd_resp_set_status(r, "302 Found");
+    httpd_resp_set_hdr(r, "Location", "/app/");
+    httpd_resp_send(r, nullptr, 0);
+    return ESP_OK;
+  }, nullptr};
+
   httpd_register_uri_handler(server, &h_report);
   httpd_register_uri_handler(server, &h_index);
+  httpd_register_uri_handler(server, &h_app);
+  httpd_register_uri_handler(server, &h_app_root);
   httpd_register_uri_handler(server, &h_status);
   httpd_register_uri_handler(server, &h_reports);
   httpd_register_uri_handler(server, &h_tests);
