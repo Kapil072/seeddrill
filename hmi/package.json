@@ -1,0 +1,7 @@
+{
+  "name": "seeddrill-hmi",
+  "private": true,
+  "type": "module",
+  "scripts": { "capture": "node src/capture.mjs", "build": "node src/capture.mjs && python src/pack.py" },
+  "dependencies": { "puppeteer-core": "^23.11.1" }
+}

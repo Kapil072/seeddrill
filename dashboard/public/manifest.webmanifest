@@ -1,0 +1,9 @@
+{
+  "name": "Seed Drill Monitor",
+  "short_name": "Seed Drill",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0c1311",
+  "theme_color": "#0c1311",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
