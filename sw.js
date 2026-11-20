@@ -1,7 +1,7 @@
 // App shell: cache first. API reads: network first with a cached fallback, so a phone
 // that loses signal in the workshop still shows the last data it had.
-const VERSION = '196-1795160888856';
-const FILES = ["./","assets/react-ppAWL3zK.js","assets/index-Dpd6leQH.js","assets/Tests-CfPQZiQt.js","assets/TestDetail-CUk4nfHv.js","assets/Events-Bsm32rIK.js","assets/reportPdf-xfih0En-.js","assets/style-DJH4CQdW.css","index.html"];
+const VERSION = '196-1795161551234';
+const FILES = ["./","assets_react-ppAWL3zK.js","assets_index-CyQtx73d.js","assets_Tests-HNOnbn2h.js","assets_TestDetail-mI9sV7LK.js","assets_Events-Bszw_j24.js","assets_reportPdf-xfih0En-.js","assets_style-DJH4CQdW.css","index.html"];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
