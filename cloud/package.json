@@ -1,0 +1,10 @@
+{
+  "name": "seeddrill-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/cloud.test.mjs",
+    "local": "node local/server.mjs"
+  },
+  "devDependencies": { "aedes": "^0.51.3", "mqtt": "^5.10.1" }
+}
